@@ -1,11 +1,24 @@
 export interface GoogleCalendarEventTime {
-  dateTime: string;
-  timeZone: string;
+  dateTime?: string;
+  date?: string;
+  timeZone?: string;
 }
 
 export interface GoogleCalendarPerson {
   email: string;
   self?: boolean;
+  displayName?: string;
+  organizer?: boolean;
+}
+
+export interface GoogleCalendarAttendee {
+  email: string;
+  self?: boolean;
+  displayName?: string;
+  organizer?: boolean;
+  responseStatus: "accepted" | "declined" | "tentative" | "needsAction";
+  optional?: boolean;
+  comment?: string;
 }
 
 export interface GoogleCalendarEvent {
@@ -16,6 +29,7 @@ export interface GoogleCalendarEvent {
   description?: string;
   location?: string;
   htmlLink?: string;
+  colorId?: string;
   created?: string;
   updated?: string;
   creator?: GoogleCalendarPerson;
@@ -23,6 +37,9 @@ export interface GoogleCalendarEvent {
   start: GoogleCalendarEventTime;
   end: GoogleCalendarEventTime;
   eventType: string;
+  hangoutLink?: string;
+  attendees?: GoogleCalendarAttendee[];
+  recurringEventId?: string;
 }
 
 export interface GoogleCalendarEventsResponse {
@@ -32,6 +49,7 @@ export interface GoogleCalendarEventsResponse {
   timeZone: string;
   accessRole?: string;
   nextSyncToken?: string;
+  nextPageToken?: string;
   items: GoogleCalendarEvent[];
 }
 

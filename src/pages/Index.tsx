@@ -1,20 +1,35 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { CalendarDays, ChevronRight, Clock, Loader2, MapPin, Plane } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CalendarDays, ChevronRight, Clock, Loader2, MapPin, Plane, Users, Video } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import AppHeader from "@/components/AppHeader";
 import { MOCK_USER } from "@/mocks/user";
-import type { GoogleCalendarEvent, GoogleCalendarEventsResponse } from "@/types/google-calendar";
+import type { GoogleCalendarEvent, GoogleCalendarEventTime, GoogleCalendarEventsResponse } from "@/types/google-calendar";
 
-const formatDate = (dateTime: string) =>
-  new Date(dateTime).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const formatEventStart = (start: GoogleCalendarEventTime): { label: string; isAllDay: boolean } => {
+  if (start.date) {
+    const [y, m, d] = start.date.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    return {
+      label: date.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }),
+      isAllDay: true,
+    };
+  }
+  if (start.dateTime) {
+    return {
+      label: new Date(start.dateTime).toLocaleDateString("pt-BR", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      isAllDay: false,
+    };
+  }
+  return { label: "—", isAllDay: false };
+};
 
 const Index = () => {
   const navigate = useNavigate();
@@ -45,13 +60,19 @@ const Index = () => {
         if (!r.ok) throw new Error(`Google API error: ${r.status}`);
         return r.json() as Promise<GoogleCalendarEventsResponse>;
       })
-      .then((data) => setEvents(data.items ?? []))
+      .then((data) =>
+        setEvents((data.items ?? []).filter((e) => e.eventType !== "workingLocation"))
+      )
       .catch((err) => {
         console.error("Calendar fetch error:", err);
         setFetchError("Não foi possível carregar os eventos. Tente reconectar.");
       })
       .finally(() => setFetchLoading(false));
   }, [googleCalendarToken]);
+
+  const handlePlanEvent = (event: GoogleCalendarEvent) => {
+    navigate("/journey/setup", { state: { event } });
+  };
 
   return (
     <div className="relative min-h-screen bg-secondary">
@@ -119,53 +140,75 @@ const Index = () => {
 
           {!fetchLoading && events.length > 0 && (
             <div className="space-y-3">
-              {events.map((event, i) => (
-                <motion.div
-                  key={event.id}
-                  className="p-4 rounded-xl border border-card-border bg-card hover:border-primary/40 transition-colors"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 * i }}
-                >
-                  <p className="font-medium text-foreground text-sm leading-snug mb-2">
-                    {event.summary}
-                  </p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1">
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Clock className="w-3 h-3 flex-shrink-0" />
-                      {formatDate(event.start.dateTime)}
-                    </span>
-                    {event.location && (
+              {events.map((event, i) => {
+                const { label: dateLabel, isAllDay } = formatEventStart(event.start);
+                const attendeeCount = event.attendees?.length ?? 0;
+                return (
+                  <motion.div
+                    key={event.id}
+                    className="group relative pl-4 pr-4 py-3.5 rounded-xl border border-card-border bg-card hover:border-primary/40 hover:bg-card/80 transition-all overflow-hidden"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.05 * i }}
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary/70 rounded-l-xl" />
+
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <p className="font-medium text-foreground text-sm leading-snug flex-1">
+                        {event.summary}
+                      </p>
+                      {isAllDay && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-primary/15 text-primary flex-shrink-0">
+                          Dia todo
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <MapPin className="w-3 h-3 flex-shrink-0" />
-                        <span className="truncate max-w-[200px]">{event.location}</span>
+                        <Clock className="w-3 h-3 flex-shrink-0" />
+                        {dateLabel}
                       </span>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
+                      {event.location && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <MapPin className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate max-w-[160px]">{event.location}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3 mt-2.5 pt-2.5 border-t border-card-border">
+                      {event.hangoutLink && (
+                        <a
+                          href={event.hangoutLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Video className="w-3 h-3" />
+                          Google Meet
+                        </a>
+                      )}
+                      {attendeeCount > 1 && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Users className="w-3 h-3" />
+                          {attendeeCount} participante{attendeeCount !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handlePlanEvent(event)}
+                        className="ml-auto flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+                      >
+                        Planejar
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           )}
-        </motion.div>
-
-        {/* CTA */}
-        <motion.div
-          className="glass-card p-6 space-y-4"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.3 }}
-        >
-          <p className="text-foreground leading-relaxed">
-            Pronto para sua próxima viagem? Deixe nosso agente inteligente planejar tudo para você.
-          </p>
-          <Button
-            onClick={() => navigate("/journey/setup")}
-            className="w-full h-12 text-base font-medium gradient-primary text-primary-foreground border-0 hover:opacity-90 transition-opacity"
-            aria-label="Planejar viagem"
-          >
-            Planejar viagem
-            <ChevronRight className="w-5 h-5 ml-1" />
-          </Button>
         </motion.div>
       </div>
     </div>
