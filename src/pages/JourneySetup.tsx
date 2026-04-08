@@ -1,28 +1,30 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, MapPin, Clock, ArrowLeftRight, ArrowRight, Loader2, Users, Video, CalendarDays } from "lucide-react";
+import {
+  ChevronRight, MapPin, Clock, ArrowLeftRight, ArrowRight,
+  Loader2, Users, Video, CalendarDays, PlaneTakeoff, PlaneLanding,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import PreferencesStep from "@/components/PreferencesStep";
+import { suggestIATA, IATA_CITY_UUID } from "@/lib/quote-search";
 import type { GoogleCalendarEvent, GoogleCalendarEventTime, GoogleCalendarEventsResponse } from "@/types/google-calendar";
 
-const formatEventStart = (start: GoogleCalendarEventTime): { label: string; isAllDay: boolean } => {
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+const fmtStart = (start: GoogleCalendarEventTime): { label: string; isAllDay: boolean } => {
   if (start.date) {
     const [y, m, d] = start.date.split("-").map(Number);
-    const date = new Date(y, m - 1, d);
     return {
-      label: date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
+      label: new Date(y, m - 1, d).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }),
       isAllDay: true,
     };
   }
   if (start.dateTime) {
     return {
       label: new Date(start.dateTime).toLocaleDateString("pt-BR", {
-        day: "2-digit",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
+        day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
       }),
       isAllDay: false,
     };
@@ -30,73 +32,92 @@ const formatEventStart = (start: GoogleCalendarEventTime): { label: string; isAl
   return { label: "—", isAllDay: false };
 };
 
-const daysUntil = (start: GoogleCalendarEventTime): number => {
-  const eventDate = start.dateTime
-    ? new Date(start.dateTime)
-    : start.date
-    ? (() => { const [y, m, d] = start.date!.split("-").map(Number); return new Date(y, m - 1, d); })()
-    : new Date();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.floor((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+const extractDate = (et: GoogleCalendarEventTime): string => {
+  if (et.date) return et.date;
+  if (et.dateTime) return et.dateTime.split("T")[0];
+  return "";
 };
 
-const eventIcon = (event: GoogleCalendarEvent): string => {
-  if (event.hangoutLink) return "💻";
-  if ((event.attendees?.length ?? 0) > 2) return "🤝";
-  if (event.start.date) return "📅";
-  return "📌";
+const daysUntil = (start: GoogleCalendarEventTime): number => {
+  const d = start.dateTime
+    ? new Date(start.dateTime)
+    : start.date
+    ? (() => { const [y, m, day] = start.date!.split("-").map(Number); return new Date(y, m - 1, day); })()
+    : new Date();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.floor((d.getTime() - today.getTime()) / 86_400_000));
 };
+
+const eventIcon = (e: GoogleCalendarEvent) =>
+  e.hangoutLink ? "💻" : (e.attendees?.length ?? 0) > 2 ? "🤝" : e.start.date ? "📅" : "📌";
+
+// ── component ─────────────────────────────────────────────────────────────────
 
 const JourneySetup = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { googleCalendarToken } = useAuth();
 
-  // Event passed from Index (pre-selected)
-  const preSelectedEvent = (location.state as { event?: GoogleCalendarEvent } | null)?.event ?? null;
+  const preSelected = (location.state as { event?: GoogleCalendarEvent } | null)?.event ?? null;
 
   const [events, setEvents] = useState<GoogleCalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<GoogleCalendarEvent | null>(preSelectedEvent);
+  const [selectedEvent, setSelectedEvent] = useState<GoogleCalendarEvent | null>(preSelected);
   const [tripType, setTripType] = useState<"roundtrip" | "oneway">("roundtrip");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [preferences, setPreferences] = useState("");
 
-  // Only fetch if no event was pre-selected
+  // Auto-fill destination from event location
   useEffect(() => {
-    if (preSelectedEvent || !googleCalendarToken) return;
+    if (selectedEvent?.location) {
+      const suggested = suggestIATA(selectedEvent.location);
+      if (suggested) setTo(suggested);
+    }
+  }, [selectedEvent]);
 
+  // Fetch events if no pre-selection
+  useEffect(() => {
+    if (preSelected || !googleCalendarToken) return;
     setLoading(true);
-    const timeMin = new Date().toISOString();
     const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
-    url.searchParams.set("timeMin", timeMin);
+    url.searchParams.set("timeMin", new Date().toISOString());
     url.searchParams.set("maxResults", "10");
     url.searchParams.set("orderBy", "startTime");
     url.searchParams.set("singleEvents", "true");
-
-    fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${googleCalendarToken}` },
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Google API error: ${r.status}`);
-        return r.json() as Promise<GoogleCalendarEventsResponse>;
-      })
-      .then((data) =>
-        setEvents((data.items ?? []).filter((e) => e.eventType !== "workingLocation"))
-      )
-      .catch((err) => console.error("Calendar fetch error:", err))
+    fetch(url.toString(), { headers: { Authorization: `Bearer ${googleCalendarToken}` } })
+      .then((r) => r.json() as Promise<GoogleCalendarEventsResponse>)
+      .then((d) => setEvents((d.items ?? []).filter((e) => e.eventType !== "workingLocation")))
+      .catch(console.error)
       .finally(() => setLoading(false));
-  }, [preSelectedEvent, googleCalendarToken]);
+  }, [preSelected, googleCalendarToken]);
 
-  const handlePlanTrip = () => {
+  const departure = selectedEvent ? extractDate(selectedEvent.start) : "";
+  const returnDate = tripType === "roundtrip" && selectedEvent
+    ? extractDate(selectedEvent.end) : undefined;
+
+  const fromValid = /^[A-Z]{3}$/.test(from.toUpperCase());
+  const toValid   = /^[A-Z]{3}$/.test(to.toUpperCase());
+  const canSubmit = !!selectedEvent && fromValid && toValid;
+
+  const handleSubmit = () => {
+    const cityUUID = IATA_CITY_UUID[to.toUpperCase()];
     navigate("/journey/loading", {
-      state: { freeTextPreferences: preferences.trim() },
+      state: {
+        from: from.toUpperCase(),
+        to: to.toUpperCase(),
+        departure,
+        returnDate,
+        tripType,
+        freeTextPreferences: preferences.trim(),
+        eventTitle: selectedEvent?.summary ?? "",
+        cityUUID: cityUUID ?? null,
+      },
     });
   };
 
-  const { label: selectedDateLabel, isAllDay: selectedIsAllDay } = selectedEvent
-    ? formatEventStart(selectedEvent.start)
-    : { label: "", isAllDay: false };
+  const { label: evtDateLabel, isAllDay: evtAllDay } = selectedEvent
+    ? fmtStart(selectedEvent.start) : { label: "", isAllDay: false };
 
   return (
     <div className="min-h-screen bg-secondary flex items-center justify-center p-4">
@@ -111,25 +132,24 @@ const JourneySetup = () => {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.3 }}
         >
-          {/* ── Mode A: event pre-selected from Index ── */}
-          {preSelectedEvent ? (
+
+          {/* ── Mode A: event pre-selected ── */}
+          {preSelected ? (
             <>
               <div className="flex items-center gap-2 mb-1">
                 <CalendarDays className="w-5 h-5 text-primary" />
                 <h2 className="text-xl font-semibold text-foreground">Planejar viagem</h2>
               </div>
-              <p className="text-muted-foreground mb-6 text-sm">
-                Configure as preferências para o compromisso selecionado
-              </p>
+              <p className="text-muted-foreground mb-5 text-sm">Configure os detalhes do voo</p>
 
-              {/* Selected event summary */}
-              <div className="relative pl-4 pr-4 py-3.5 rounded-xl border border-primary/40 bg-primary/5 mb-6 overflow-hidden">
+              {/* Event summary */}
+              <div className="relative pl-4 pr-4 py-3.5 rounded-xl border border-primary/40 bg-primary/5 mb-5 overflow-hidden">
                 <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-l-xl" />
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <p className="font-semibold text-foreground text-sm leading-snug flex-1">
-                    {eventIcon(preSelectedEvent)} {preSelectedEvent.summary}
+                    {eventIcon(preSelected)} {preSelected.summary}
                   </p>
-                  {selectedIsAllDay && (
+                  {evtAllDay && (
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-primary/15 text-primary flex-shrink-0">
                       Dia todo
                     </span>
@@ -137,39 +157,34 @@ const JourneySetup = () => {
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="w-3 h-3" />
-                    {selectedDateLabel}
+                    <Clock className="w-3 h-3" />{evtDateLabel}
                   </span>
-                  {preSelectedEvent.location && (
+                  {preSelected.location && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <MapPin className="w-3 h-3" />
-                      <span className="truncate max-w-[200px]">{preSelectedEvent.location}</span>
+                      <span className="truncate max-w-[200px]">{preSelected.location}</span>
                     </span>
                   )}
-                  {(preSelectedEvent.attendees?.length ?? 0) > 1 && (
+                  {(preSelected.attendees?.length ?? 0) > 1 && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Users className="w-3 h-3" />
-                      {preSelectedEvent.attendees!.length} participantes
+                      <Users className="w-3 h-3" />{preSelected.attendees!.length} participantes
                     </span>
                   )}
-                  {preSelectedEvent.hangoutLink && (
+                  {preSelected.hangoutLink && (
                     <span className="flex items-center gap-1 text-xs text-primary">
-                      <Video className="w-3 h-3" />
-                      Google Meet
+                      <Video className="w-3 h-3" />Google Meet
                     </span>
                   )}
                 </div>
               </div>
             </>
           ) : (
-            /* ── Mode B: no pre-selection, show event list ── */
+            /* ── Mode B: pick event ── */
             <>
               <h2 className="text-xl font-semibold text-foreground mb-2">
                 Qual compromisso você quer planejar?
               </h2>
-              <p className="text-muted-foreground mb-6 text-sm">
-                Selecione um evento da sua agenda
-              </p>
+              <p className="text-muted-foreground mb-5 text-sm">Selecione um evento da sua agenda</p>
 
               {loading && (
                 <div className="flex items-center justify-center py-10 gap-3 text-muted-foreground">
@@ -177,29 +192,25 @@ const JourneySetup = () => {
                   <span className="text-sm">Carregando sua agenda...</span>
                 </div>
               )}
-
               {!loading && events.length === 0 && (
                 <p className="text-sm text-muted-foreground py-6 text-center">
-                  Nenhum evento próximo encontrado na sua agenda.
+                  Nenhum evento próximo encontrado.
                 </p>
               )}
-
               {!loading && events.length > 0 && (
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-5">
                   {events.map((event, i) => {
-                    const { label: dateLabel, isAllDay } = formatEventStart(event.start);
+                    const { label: dl, isAllDay: ad } = fmtStart(event.start);
                     const days = daysUntil(event.start);
-                    const attendeeCount = event.attendees?.length ?? 0;
-                    const isSelected = selectedEvent?.id === event.id;
-
+                    const ac = event.attendees?.length ?? 0;
+                    const sel = selectedEvent?.id === event.id;
                     return (
                       <motion.button
                         key={event.id}
                         onClick={() => setSelectedEvent(event)}
                         className={`w-full text-left p-4 rounded-xl border transition-all ${
-                          isSelected
-                            ? "border-primary glow-primary bg-primary/5"
-                            : "border-card-border bg-card hover:border-muted-foreground/30"
+                          sel ? "border-primary glow-primary bg-primary/5"
+                             : "border-card-border bg-card hover:border-muted-foreground/30"
                         }`}
                         initial={{ opacity: 0, y: 15 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -209,18 +220,11 @@ const JourneySetup = () => {
                           <div className="flex items-start gap-3 flex-1 min-w-0">
                             <span className="text-lg flex-shrink-0 mt-0.5">{eventIcon(event)}</span>
                             <div className="flex-1 min-w-0">
-                              <p className="font-medium text-foreground text-sm leading-snug truncate">
-                                {event.summary}
-                              </p>
+                              <p className="font-medium text-foreground text-sm leading-snug truncate">{event.summary}</p>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
                                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Clock className="w-3 h-3 flex-shrink-0" />
-                                  {dateLabel}
-                                  {isAllDay && (
-                                    <span className="ml-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                                      Dia todo
-                                    </span>
-                                  )}
+                                  <Clock className="w-3 h-3 flex-shrink-0" />{dl}
+                                  {ad && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">Dia todo</span>}
                                 </span>
                                 {event.location && (
                                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -229,20 +233,10 @@ const JourneySetup = () => {
                                   </span>
                                 )}
                               </div>
-                              {(event.hangoutLink || attendeeCount > 1) && (
+                              {(event.hangoutLink || ac > 1) && (
                                 <div className="flex items-center gap-3 mt-1.5">
-                                  {event.hangoutLink && (
-                                    <span className="flex items-center gap-1 text-xs text-primary">
-                                      <Video className="w-3 h-3" />
-                                      Google Meet
-                                    </span>
-                                  )}
-                                  {attendeeCount > 1 && (
-                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                      <Users className="w-3 h-3" />
-                                      {attendeeCount} participantes
-                                    </span>
-                                  )}
+                                  {event.hangoutLink && <span className="flex items-center gap-1 text-xs text-primary"><Video className="w-3 h-3" />Google Meet</span>}
+                                  {ac > 1 && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="w-3 h-3" />{ac} participantes</span>}
                                 </div>
                               )}
                             </div>
@@ -259,30 +253,85 @@ const JourneySetup = () => {
             </>
           )}
 
-          {/* Trip type toggle */}
+          {/* ── Airport inputs ── */}
+          <AnimatePresence>
+            {selectedEvent && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="grid grid-cols-2 gap-3 mb-5"
+              >
+                <div>
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                    <PlaneTakeoff className="w-3.5 h-3.5" />Origem
+                  </label>
+                  <input
+                    type="text"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value.toUpperCase().slice(0, 3))}
+                    placeholder="GRU"
+                    maxLength={3}
+                    className={`w-full h-11 px-3 rounded-lg border text-sm font-mono tracking-widest uppercase bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-all ${
+                      from.length === 3 && !fromValid
+                        ? "border-destructive focus:ring-destructive"
+                        : fromValid
+                        ? "border-primary/50 focus:ring-primary"
+                        : "border-card-border focus:ring-primary"
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                    <PlaneLanding className="w-3.5 h-3.5" />Destino
+                  </label>
+                  <input
+                    type="text"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value.toUpperCase().slice(0, 3))}
+                    placeholder="SSA"
+                    maxLength={3}
+                    className={`w-full h-11 px-3 rounded-lg border text-sm font-mono tracking-widest uppercase bg-secondary text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 transition-all ${
+                      to.length === 3 && !toValid
+                        ? "border-destructive focus:ring-destructive"
+                        : toValid
+                        ? "border-primary/50 focus:ring-primary"
+                        : "border-card-border focus:ring-primary"
+                    }`}
+                  />
+                </div>
+                {departure && (
+                  <div className="col-span-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>
+                      Ida: <strong className="text-foreground">{departure}</strong>
+                      {returnDate && (
+                        <> · Volta: <strong className="text-foreground">{returnDate}</strong></>
+                      )}
+                    </span>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Trip type ── */}
           <div className="flex items-center justify-center mb-4">
             <div className="flex bg-secondary rounded-full p-1">
-              <button
-                onClick={() => setTripType("roundtrip")}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  tripType === "roundtrip" ? "gradient-primary text-primary-foreground" : "text-muted-foreground"
-                }`}
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-                Ida e volta
-              </button>
-              <button
-                onClick={() => setTripType("oneway")}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  tripType === "oneway" ? "gradient-primary text-primary-foreground" : "text-muted-foreground"
-                }`}
-              >
-                <ArrowRight className="w-4 h-4" />
-                Somente ida
-              </button>
+              {(["roundtrip", "oneway"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTripType(t)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    tripType === t ? "gradient-primary text-primary-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  {t === "roundtrip" ? <><ArrowLeftRight className="w-4 h-4" />Ida e volta</> : <><ArrowRight className="w-4 h-4" />Somente ida</>}
+                </button>
+              ))}
             </div>
           </div>
 
+          {/* ── Preferences ── */}
           <AnimatePresence>
             {selectedEvent && (
               <PreferencesStep value={preferences} onChange={setPreferences} />
@@ -290,14 +339,19 @@ const JourneySetup = () => {
           </AnimatePresence>
 
           <Button
-            onClick={handlePlanTrip}
-            disabled={!selectedEvent}
+            onClick={handleSubmit}
+            disabled={!canSubmit}
             className="w-full h-12 text-base gradient-primary text-primary-foreground border-0 hover:opacity-90 disabled:opacity-40 mt-6"
-            aria-label="Planejar esta viagem"
           >
-            Planejar esta viagem
+            Buscar opções de viagem
             <ChevronRight className="w-5 h-5 ml-1" />
           </Button>
+
+          {selectedEvent && (!fromValid || !toValid) && (from.length > 0 || to.length > 0) && (
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              Informe os códigos IATA de 3 letras (ex: GRU, SSA, BSB)
+            </p>
+          )}
         </motion.div>
       </div>
     </div>

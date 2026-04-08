@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Check, Calendar, Plane, Hotel, Car, Home } from "lucide-react";
+import { Check, Calendar, Plane, Hotel, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Particle = ({ delay }: { delay: number }) => {
@@ -73,31 +73,49 @@ const JourneyConfirmed = () => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
-              <Plane className="w-5 h-5 text-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {card.flight.airline} {card.flight.code}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {card.flight.from} → {card.flight.to} · {card.flight.departure}
-                </p>
+            {card.fare && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
+                <Plane className="w-5 h-5 text-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {card.fare.ciaManaging?.name ?? "Voo"} · {card.fare.family}
+                    {card.fare.businessClass === "J" ? " (Executiva)" : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {card.from} → {card.to} · {card.departure}
+                    {card.returnDate ? ` → ${card.returnDate}` : ""}
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
-              <Hotel className="w-5 h-5 text-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-foreground">{card.hotel.name}</p>
-                <p className="text-xs text-muted-foreground">{card.hotel.distance}</p>
+            )}
+            {/* legacy mock format support */}
+            {!card.fare && card.flight && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
+                <Plane className="w-5 h-5 text-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">{card.flight.airline} {card.flight.code}</p>
+                  <p className="text-xs text-muted-foreground">{card.flight.from} → {card.flight.to}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
-              <Car className="w-5 h-5 text-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-foreground">{card.transport.type}</p>
-                <p className="text-xs text-muted-foreground">~{card.transport.price} {card.transport.description}</p>
+            )}
+            {card.hotel && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
+                <Hotel className="w-5 h-5 text-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">{card.hotel.name}</p>
+                  <p className="text-xs text-muted-foreground">{card.hotel.address?.addressLine ?? card.hotel.distance}</p>
+                </div>
               </div>
-            </div>
+            )}
+            {card.eventTitle && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary">
+                <Calendar className="w-5 h-5 text-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">{card.eventTitle}</p>
+                  <p className="text-xs text-muted-foreground">{card.badge}</p>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 

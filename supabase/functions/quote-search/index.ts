@@ -1,106 +1,134 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-let accessToken: string | null = null;
-let tokenExpiresAt: number | null = null;
+const DEFAULT_TRAVELER = {
+  birthday: "2000-06-01",
+  travelerEntityId: "8360e4d5-71dd-4ca4-9aa6-3ff7f6c7709e",
+};
 
-async function getAccessToken(): Promise<string> {
-  const now = Date.now();
-  if (accessToken && tokenExpiresAt && now < tokenExpiresAt) {
-    return accessToken;
-  }
+let cachedToken: string | null = null;
+let tokenExpiresAt = 0;
 
-  const clientId = Deno.env.get('TOGURO_CLIENT_ID');
-  const clientSecret = Deno.env.get('TOGURO_CLIENT_SECRET');
+async function getToguroToken(): Promise<string> {
+  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
 
-  if (!clientId || !clientSecret) {
-    throw new Error('Missing Toguro credentials');
-  }
+  const clientId = Deno.env.get("ONFLY_CLIENT_ID")!;
+  const clientSecret = Deno.env.get("ONFLY_CLIENT_SECRET")!;
 
-  const tokenResponse = await fetch('https://api.toguro.com/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
+  // Step 1: OAuth token from Onfly
+  const oauthRes = await fetch("https://api.onfly.com.br/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: 'client_credentials',
+      grant_type: "client_credentials",
       client_id: clientId,
       client_secret: clientSecret,
-      scope: 'quotes:read'
-    })
+    }),
   });
 
-  if (!tokenResponse.ok) {
-    throw new Error('Failed to get access token');
+  if (!oauthRes.ok) {
+    const t = await oauthRes.text();
+    throw new Error(`OAuth failed ${oauthRes.status}: ${t}`);
   }
+  const { access_token } = await oauthRes.json();
 
-  const tokenData = await tokenResponse.json();
-  accessToken = tokenData.access_token;
-  tokenExpiresAt = now + (tokenData.expires_in * 1000) - 60000;
+  // Step 2: Exchange for Toguro internal token
+  const internalRes = await fetch("https://api.onfly.com/auth/token/internal", {
+    headers: { Authorization: `Bearer ${access_token}` },
+  });
 
-  return accessToken;
+  if (!internalRes.ok) {
+    const t = await internalRes.text();
+    throw new Error(`Internal token failed ${internalRes.status}: ${t}`);
+  }
+  const internalData = await internalRes.json();
+  cachedToken = internalData.token ?? internalData.access_token ?? internalData.data?.token;
+  tokenExpiresAt = Date.now() + 10 * 60 * 1000;
+
+  return cachedToken!;
 }
 
-async function makeApiCall(endpoint: string, body: unknown, retries = 1): Promise<unknown> {
-  const token = await getAccessToken();
+async function callBFF(body: object, retries = 1): Promise<unknown> {
+  const token = await getToguroToken();
 
-  const response = await fetch(`https://api.toguro.com/v1/${endpoint}`, {
-    method: 'POST',
+  const res = await fetch("https://toguro-app-prod.onfly.com/bff/quote/create", {
+    method: "POST",
     headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 
-  if (response.status === 401 && retries > 0) {
-    accessToken = null;
-    tokenExpiresAt = null;
-    return makeApiCall(endpoint, body, retries - 1);
+  if (res.status === 401 && retries > 0) {
+    cachedToken = null;
+    tokenExpiresAt = 0;
+    return callBFF(body, retries - 1);
   }
 
-  if (!response.ok) {
-    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`BFF failed ${res.status}: ${t}`);
   }
 
-  return response.json();
+  return res.json();
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const { type, params } = await req.json();
+    let bffBody: object;
 
-    let results;
-    if (type === 'flight') {
-      results = await makeApiCall('quotes/flights', params);
-    } else if (type === 'hotel') {
-      results = await makeApiCall('quotes/hotels', params);
+    if (type === "flights") {
+      const { from, to, departure, returnDate, travelers } = params;
+      const flightEntry: Record<string, unknown> = {
+        departure,
+        from,
+        to,
+        travelers: travelers ?? [DEFAULT_TRAVELER],
+      };
+      if (returnDate) flightEntry.return = returnDate;
+
+      bffBody = {
+        owners: [null],
+        flights: [flightEntry],
+        groupFlights: true,
+      };
+    } else if (type === "hotels") {
+      const { checkIn, checkOut, destination, travelers } = params;
+      bffBody = {
+        owners: [null],
+        hotels: [{
+          checkIn,
+          checkOut,
+          destination,
+          travelers: travelers ?? [{ ...DEFAULT_TRAVELER, roomIndex: 0 }],
+        }],
+      };
     } else {
-      throw new Error('Invalid search type');
+      return new Response(
+        JSON.stringify({ error: "Invalid type. Use flights or hotels." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
+    const data = await callBFF(bffBody);
+
+    return new Response(JSON.stringify(data), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error("quote-search error:", err);
     return new Response(
-      JSON.stringify({ results }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
-      }
-    );
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400
-      }
+      JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
