@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "noImplicitAny": false,
+    "strict": false,
+    "target": "ES2022"
+  },
+  "include": ["./**/*.ts", "./deno.d.ts"]
+}
