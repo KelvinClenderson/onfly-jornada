@@ -78,7 +78,8 @@ const Index = () => {
     <div className="relative min-h-screen bg-secondary">
       <AppHeader />
 
-      <div className="max-w-lg mx-auto px-4 py-20 space-y-4">
+      <div className="px-4 py-20 space-y-6">
+        <div className="max-w-lg mx-auto space-y-4">
         {/* Welcome */}
         <motion.div
           className="glass-card p-6"
@@ -108,10 +109,11 @@ const Index = () => {
             <p className="text-sm text-muted-foreground mt-1">viagens realizadas pela plataforma</p>
           </div>
         </motion.div>
+        </div>{/* end max-w-lg */}
 
-        {/* Calendar events */}
+        {/* Calendar events — full-width grid */}
         <motion.div
-          className="glass-card p-6"
+          className="max-w-5xl mx-auto glass-card p-6"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
@@ -139,7 +141,7 @@ const Index = () => {
           )}
 
           {!fetchLoading && events.length > 0 && (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {events.map((event, i) => {
                 const { label: dateLabel, isAllDay } = formatEventStart(event.start);
                 const attendeeCount = event.attendees?.length ?? 0;
@@ -172,7 +174,7 @@ const Index = () => {
                       {event.location && (
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">
                           <MapPin className="w-3 h-3 flex-shrink-0" />
-                          <span className="truncate max-w-[160px]">{event.location}</span>
+                          <span className="truncate">{event.location}</span>
                         </span>
                       )}
                     </div>
