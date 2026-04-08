@@ -4,11 +4,13 @@ import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 
 const GoogleAuthCallback = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { saveGoogleSession } = useAuth();
   const called = useRef(false);
 
   useEffect(() => {
@@ -23,25 +25,27 @@ const GoogleAuthCallback = () => {
         description: "Código de autorização não encontrado.",
         variant: "destructive",
       });
-      navigate("/journey/setup");
+      navigate("/login");
       return;
     }
 
     supabase.functions
       .invoke("google-calendar-auth", { body: { action: "callback", code } })
       .then(({ data, error }) => {
-        if (error || !data?.success) {
+        if (error || !data?.success || !data?.access_token) {
           toast({
             title: "Erro ao conectar Google Calendar",
             description: "Não foi possível concluir a autenticação. Tente novamente.",
             variant: "destructive",
           });
-          navigate("/journey/setup");
+          navigate("/login");
           return;
         }
-        navigate("/journey/setup?step=1");
+
+        saveGoogleSession(data.access_token, data.refresh_token ?? null, data.user);
+        navigate("/");
       });
-  }, [navigate, searchParams, toast]);
+  }, [navigate, saveGoogleSession, searchParams, toast]);
 
   return (
     <div className="min-h-screen bg-secondary flex items-center justify-center">
