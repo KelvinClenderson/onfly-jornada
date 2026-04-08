@@ -6,7 +6,7 @@ import { mockLogs } from "@/lib/mock-data";
 const JourneyLoading = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const freeTextPreferences = (location.state as any)?.freeTextPreferences || "";
+  const freeTextPreferences = (location.state as { freeTextPreferences?: string } | null)?.freeTextPreferences || "";
   const [visibleLogs, setVisibleLogs] = useState<number>(0);
 
   // Build logs dynamically — inject preferences line if provided

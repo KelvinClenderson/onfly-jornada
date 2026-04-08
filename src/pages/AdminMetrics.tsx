@@ -154,7 +154,7 @@ const AdminMetrics = () => {
                     color: "#1A2332",
                     fontSize: 12,
                   }}
-                  formatter={(value: number, name: string, props: any) => [
+                  formatter={(value: number, name: string, props: { payload: { pct: number } }) => [
                     `${value} (${props.payload.pct}%)`,
                     "Sessões",
                   ]}

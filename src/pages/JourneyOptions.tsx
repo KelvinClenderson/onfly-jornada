@@ -14,7 +14,7 @@ const badgeStyles: Record<string, string> = {
 const JourneyOptions = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const freeTextPreferences = (location.state as any)?.freeTextPreferences || "";
+  const freeTextPreferences = (location.state as { freeTextPreferences?: string } | null)?.freeTextPreferences || "";
   const [expandedCard, setExpandedCard] = useState<number | null>(null);
   const [customInputs, setCustomInputs] = useState<Record<number, string>>({});
   const [showAlert, setShowAlert] = useState(true);

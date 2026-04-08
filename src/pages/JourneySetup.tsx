@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Calendar, Check, ChevronRight, MapPin, Clock, ArrowLeftRight, ArrowRight } from "lucide-react";
+import { Calendar, Check, ChevronRight, Loader2, MapPin, Clock, ArrowLeftRight, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { mockEvents } from "@/lib/mock-data";
 import PreferencesStep from "@/components/PreferencesStep";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const eventTypeColors: Record<string, string> = {
   conference: "bg-primary/10 text-primary",
@@ -14,10 +16,34 @@ const eventTypeColors: Record<string, string> = {
 
 const JourneySetup = () => {
   const navigate = useNavigate();
-  const [step, setStep] = useState(0);
+  const [searchParams] = useSearchParams();
+  const { toast } = useToast();
+  const [step, setStep] = useState(searchParams.get("step") === "1" ? 1 : 0);
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
   const [tripType, setTripType] = useState<"roundtrip" | "oneway">("roundtrip");
   const [preferences, setPreferences] = useState("");
+  const [calendarLoading, setCalendarLoading] = useState(false);
+
+  const handleAuthorizeCalendar = async () => {
+    setCalendarLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("google-calendar-auth", {
+        body: { action: "start" },
+      });
+      if (error || !data?.auth_url) {
+        throw new Error(error?.message ?? "Resposta inválida da função");
+      }
+      window.location.href = data.auth_url;
+    } catch (err) {
+      console.error("Google Calendar auth error:", err);
+      toast({
+        title: "Erro ao iniciar autenticação",
+        description: "Não foi possível conectar ao Google Calendar. Tente novamente.",
+        variant: "destructive",
+      });
+      setCalendarLoading(false);
+    }
+  };
 
   const permissions = ["Ler eventos futuros", "Criar lembretes após confirmação"];
 
@@ -83,12 +109,17 @@ const JourneySetup = () => {
               </div>
 
               <Button
-                onClick={() => setStep(1)}
-                className="w-full h-12 text-base gradient-primary text-primary-foreground border-0 hover:opacity-90"
+                onClick={handleAuthorizeCalendar}
+                disabled={calendarLoading}
+                className="w-full h-12 text-base gradient-primary text-primary-foreground border-0 hover:opacity-90 disabled:opacity-60"
                 aria-label="Autorizar Google Calendar"
               >
-                <img src="https://www.google.com/favicon.ico" alt="" className="w-5 h-5 mr-2" />
-                Autorizar Google Calendar
+                {calendarLoading ? (
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <img src="https://www.google.com/favicon.ico" alt="" className="w-5 h-5 mr-2" />
+                )}
+                {calendarLoading ? "Redirecionando..." : "Autorizar Google Calendar"}
               </Button>
             </motion.div>
           )}

@@ -24,7 +24,7 @@ const Particle = ({ delay }: { delay: number }) => {
 const JourneyConfirmed = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const card = (location.state as any)?.selectedCard;
+  const card = (location.state as { selectedCard?: unknown } | null)?.selectedCard;
   const [showContent, setShowContent] = useState(false);
 
   useEffect(() => {

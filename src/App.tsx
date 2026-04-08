@@ -13,6 +13,7 @@ import JourneyOptions from "./pages/JourneyOptions.tsx";
 import JourneyConfirmed from "./pages/JourneyConfirmed.tsx";
 import AdminMetrics from "./pages/AdminMetrics.tsx";
 import AuthCallback from "./pages/AuthCallback.tsx";
+import GoogleAuthCallback from "./pages/GoogleAuthCallback.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/auth/google/callback" element={<GoogleAuthCallback />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/journey/setup" element={<ProtectedRoute><JourneySetup /></ProtectedRoute>} />
             <Route path="/journey/loading" element={<ProtectedRoute><JourneyLoading /></ProtectedRoute>} />
