@@ -136,6 +136,26 @@ const Login = () => {
             </div>
           </div>
 
+          <div className="mt-4 p-4 rounded-lg" style={{ backgroundColor: '#FFF8EC', border: '1px solid #F5E6C8' }}>
+            <p className="text-xs font-semibold mb-2" style={{ color: '#8A6200' }}>Acesso em fase de testes — e-mails autorizados:</p>
+            <ul className="space-y-0.5">
+              {[
+                'danniel.pereira@onfly.com.br',
+                'doondjc@gmail.com',
+                'edson.ribeiro@onfly.com.br',
+                'elvimar@onfly.com.br',
+                'kelvin.araujo@onfly.com.br',
+                'kelvinclenderson95@gmail.com',
+                'lucas.borges@onfly.com.br',
+                'lucas.macena@onfly.com.br',
+                'marcelo@onfly.com.br',
+                'paulo@onfly.com.br',
+              ].map((email) => (
+                <li key={email} className="text-xs" style={{ color: '#6B4F00' }}>{email}</li>
+              ))}
+            </ul>
+          </div>
+
           <p className="text-xs text-center mt-6" style={{ color: '#A8BFCC' }}>
             Ao entrar, você concorda com os Termos de Uso da Onfly.
           </p>
